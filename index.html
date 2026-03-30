@@ -1590,7 +1590,7 @@
     function getSites() {
       let list = [];
       if (filterMode !== 'custom') {
-        const repos = ghRepos.filter(r => r.hasPages);
+        const repos = ghRepos.filter(r => filterMode !== 'pages' || r.hasPages);
         list = repos.map(r => ({ _id: r._id, name: r.name, url: r.url, lang: r.lang, isLive: r.hasPages, isGh: true, description: r.description, image: '' }));
       }
       if (filterMode !== 'pages') {
