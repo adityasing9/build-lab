@@ -490,30 +490,43 @@ function addSite() {
 }
 
 // ════════════════════ DELETE ════════════════════
-function askDelete(id, name) {
+let pendingDeleteIsGh = false;
+function askDelete(id, name, isGh) {
   requireAdmin(() => {
     pendingDeleteId = id;
+    pendingDeleteIsGh = !!isGh;
     document.getElementById('confirm-name').textContent = name;
     document.getElementById('confirm-dialog').classList.add('open');
   });
 }
-function closeConfirm() { document.getElementById('confirm-dialog').classList.remove('open'); pendingDeleteId=null; }
+function closeConfirm() { document.getElementById('confirm-dialog').classList.remove('open'); pendingDeleteId=null; pendingDeleteIsGh=false; }
 async function confirmDelete() {
   try {
-    await apiAuth(`/sites/${pendingDeleteId}`,'DELETE');
-    customSites = customSites.filter(s=>s._id!==pendingDeleteId);
-    delete previewState['site-'+pendingDeleteId];
-    liveCards.delete('site-'+pendingDeleteId);
+    if (pendingDeleteIsGh) {
+      // GH repos are not in the DB — remove client-side only
+      ghRepos = ghRepos.filter(r=>String(r._id)!==String(pendingDeleteId));
+      const cardId='gh-'+String(pendingDeleteId).replace(/[^a-z0-9]/gi,'');
+      delete previewState[cardId];
+      liveCards.delete(cardId);
+    } else {
+      await apiAuth(`/sites/${pendingDeleteId}`,'DELETE');
+      customSites = customSites.filter(s=>String(s._id)!==String(pendingDeleteId));
+      delete previewState['site-'+pendingDeleteId];
+      liveCards.delete('site-'+pendingDeleteId);
+    }
     closeConfirm(); render();
   } catch(e) { alert('ERR: '+e.message); }
 }
 
 // ════════════════════ MODIFY ════════════════════
-function openModify(id) {
+let editingIsGh = false;
+function openModify(id, isGh) {
   requireAdmin(() => {
-    const site = customSites.find(s=>s._id===id);
+    const site = isGh
+      ? ghRepos.find(r=>String(r._id)===String(id))
+      : customSites.find(s=>String(s._id)===String(id));
     if (!site) return;
-    editingId = id;
+    editingId = id; editingIsGh = !!isGh;
     document.getElementById('mod-name').value = site.name;
     document.getElementById('mod-url').value  = site.url;
     document.getElementById('mod-desc').value = site.description||'';
@@ -521,7 +534,7 @@ function openModify(id) {
     document.getElementById('mod-dialog').classList.add('open');
   });
 }
-function closeMod() { document.getElementById('mod-dialog').classList.remove('open'); editingId=null; }
+function closeMod() { document.getElementById('mod-dialog').classList.remove('open'); editingId=null; editingIsGh=false; }
 async function saveModify() {
   const name=document.getElementById('mod-name').value.trim();
   let url=document.getElementById('mod-url').value.trim();
@@ -530,10 +543,16 @@ async function saveModify() {
   if (!/^https?:\/\//i.test(url)) url='https://'+url;
   try { new URL(url); } catch { setMsg('mod-msg','ERR: invalid url','err'); return; }
   try {
-    const updated = await apiAuth(`/sites/${editingId}`,'PUT',{name,url,description:desc});
-    const idx = customSites.findIndex(s=>s._id===editingId);
-    if (idx!==-1) customSites[idx]={...customSites[idx],...updated};
-    setMsg('mod-msg','OK: saved','ok');
+    if (editingIsGh) {
+      const idx = ghRepos.findIndex(r=>String(r._id)===String(editingId));
+      if (idx!==-1) ghRepos[idx]={...ghRepos[idx],name,url,description:desc};
+      setMsg('mod-msg','OK: updated (session only)','ok');
+    } else {
+      const updated = await apiAuth(`/sites/${editingId}`,'PUT',{name,url,description:desc});
+      const idx = customSites.findIndex(s=>String(s._id)===String(editingId));
+      if (idx!==-1) customSites[idx]={...customSites[idx],...updated};
+      setMsg('mod-msg','OK: saved','ok');
+    }
     setTimeout(()=>{closeMod();render();},600);
   } catch(e) { setMsg('mod-msg','ERR: '+e.message,'err'); }
 }
@@ -714,9 +733,9 @@ function render() {
         <div class="footer-acts">
           <a class="ibtn ibtn-open" href="${eu}" target="_blank">[→]</a>
           ${s.isLive?`<button class="ibtn ibtn-play${isPlaying?' on':''}" onclick="toggleLive('${cid}','${eu}')">[▶ live]</button>`:''}
-          ${!s.isGh?`<button class="ibtn ibtn-img admin-only" onclick="openImgDialog('${dbId}')">[img]</button>
-          <button class="ibtn ibtn-edit admin-only" onclick="openModify('${dbId}')">[edit]</button>
-          <button class="ibtn ibtn-del admin-only" onclick="askDelete('${dbId}','${en}')">[del]</button>`:''}
+          ${!s.isGh?`<button class="ibtn ibtn-img admin-only" onclick="openImgDialog('${dbId}')">[img]</button>`:''}
+          <button class="ibtn ibtn-edit admin-only" onclick="openModify('${dbId}',${s.isGh?1:0})">[edit]</button>
+          <button class="ibtn ibtn-del admin-only" onclick="askDelete('${dbId}','${en}',${s.isGh?1:0})">[del]</button>
         </div>
       </div>
     </div>`;
